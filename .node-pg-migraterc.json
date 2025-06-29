@@ -1,0 +1,9 @@
+{
+  "migrationsDir": "supabase/migrations",
+  "migrationFileLanguage": "js",
+  "createMigrationsSchema": false,
+  "checkOrder": true,
+  "verbose": true,
+  "decamelize": false,
+  "ignorePattern": "\\.sql$"
+}

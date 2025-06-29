@@ -1,0 +1,16 @@
+/*
+  # Add unique constraints for participant management
+
+  1. Database Changes
+    - Add unique constraint on meeting_participants (meeting_id, user_id)
+    - This enables proper upsert operations for participant management
+
+  2. Security
+    - No changes to existing RLS policies
+    - Maintains existing security model
+*/
+
+-- Add unique constraint for meeting_participants to enable upsert operations
+ALTER TABLE meeting_participants 
+ADD CONSTRAINT meeting_participants_meeting_user_unique 
+UNIQUE (meeting_id, user_id);

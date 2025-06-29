@@ -1,0 +1,140 @@
+/*
+  # Meeting Knowledge Base Schema
+
+  1. New Tables
+    - `meeting_knowledge`
+      - `id` (uuid, primary key)
+      - `meeting_id` (text, references meeting room)
+      - `content` (text, knowledge content)
+      - `content_type` (text, type of knowledge: 'fact', 'context', 'summary')
+      - `source` (text, source of knowledge: 'user', 'ai', 'document')
+      - `created_at` (timestamp)
+      - `updated_at` (timestamp)
+    - `meetings`
+      - `id` (text, primary key, room ID)
+      - `name` (text, meeting name)
+      - `host_id` (text, host identifier)
+      - `created_at` (timestamp)
+      - `is_active` (boolean, meeting status)
+    - `meeting_participants`
+      - `id` (uuid, primary key)
+      - `meeting_id` (text, references meetings)
+      - `user_name` (text, participant name)
+      - `user_id` (text, participant identifier)
+      - `joined_at` (timestamp)
+      - `left_at` (timestamp, nullable)
+      - `is_connected` (boolean, current connection status)
+
+  2. Security
+    - Enable RLS on all tables
+    - Add policies for meeting participants to access their meeting data
+    - Add policies for knowledge base access within meetings
+
+  3. Real-time
+    - Enable real-time subscriptions for meeting_knowledge table
+    - Enable real-time subscriptions for meeting_participants table
+*/
+
+-- Create meetings table
+CREATE TABLE IF NOT EXISTS meetings (
+  id text PRIMARY KEY,
+  name text NOT NULL,
+  host_id text NOT NULL,
+  created_at timestamptz DEFAULT now(),
+  is_active boolean DEFAULT true
+);
+
+-- Create meeting_participants table
+CREATE TABLE IF NOT EXISTS meeting_participants (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  meeting_id text NOT NULL REFERENCES meetings(id) ON DELETE CASCADE,
+  user_name text NOT NULL,
+  user_id text NOT NULL,
+  joined_at timestamptz DEFAULT now(),
+  left_at timestamptz,
+  is_connected boolean DEFAULT true
+);
+
+-- Create meeting_knowledge table
+CREATE TABLE IF NOT EXISTS meeting_knowledge (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  meeting_id text NOT NULL REFERENCES meetings(id) ON DELETE CASCADE,
+  content text NOT NULL,
+  content_type text NOT NULL DEFAULT 'fact',
+  source text NOT NULL DEFAULT 'user',
+  created_at timestamptz DEFAULT now(),
+  updated_at timestamptz DEFAULT now()
+);
+
+-- Enable Row Level Security
+ALTER TABLE meetings ENABLE ROW LEVEL SECURITY;
+ALTER TABLE meeting_participants ENABLE ROW LEVEL SECURITY;
+ALTER TABLE meeting_knowledge ENABLE ROW LEVEL SECURITY;
+
+-- Create policies for meetings
+CREATE POLICY "Anyone can read meetings"
+  ON meetings
+  FOR SELECT
+  TO anon, authenticated
+  USING (true);
+
+CREATE POLICY "Anyone can create meetings"
+  ON meetings
+  FOR INSERT
+  TO anon, authenticated
+  WITH CHECK (true);
+
+CREATE POLICY "Host can update their meetings"
+  ON meetings
+  FOR UPDATE
+  TO anon, authenticated
+  USING (true);
+
+-- Create policies for meeting_participants
+CREATE POLICY "Anyone can read participants"
+  ON meeting_participants
+  FOR SELECT
+  TO anon, authenticated
+  USING (true);
+
+CREATE POLICY "Anyone can join meetings"
+  ON meeting_participants
+  FOR INSERT
+  TO anon, authenticated
+  WITH CHECK (true);
+
+CREATE POLICY "Participants can update their own data"
+  ON meeting_participants
+  FOR UPDATE
+  TO anon, authenticated
+  USING (true);
+
+-- Create policies for meeting_knowledge
+CREATE POLICY "Anyone can read meeting knowledge"
+  ON meeting_knowledge
+  FOR SELECT
+  TO anon, authenticated
+  USING (true);
+
+CREATE POLICY "Anyone can add meeting knowledge"
+  ON meeting_knowledge
+  FOR INSERT
+  TO anon, authenticated
+  WITH CHECK (true);
+
+CREATE POLICY "Anyone can update meeting knowledge"
+  ON meeting_knowledge
+  FOR UPDATE
+  TO anon, authenticated
+  USING (true);
+
+-- Create indexes for better performance
+CREATE INDEX IF NOT EXISTS idx_meeting_participants_meeting_id ON meeting_participants(meeting_id);
+CREATE INDEX IF NOT EXISTS idx_meeting_participants_user_id ON meeting_participants(user_id);
+CREATE INDEX IF NOT EXISTS idx_meeting_knowledge_meeting_id ON meeting_knowledge(meeting_id);
+CREATE INDEX IF NOT EXISTS idx_meeting_knowledge_content_type ON meeting_knowledge(content_type);
+
+-- Enable real-time subscriptions
+ALTER PUBLICATION supabase_realtime ADD TABLE meeting_knowledge;
+ALTER PUBLICATION supabase_realtime ADD TABLE meeting_participants;
+ALTER PUBLICATION supabase_realtime ADD TABLE meetings;

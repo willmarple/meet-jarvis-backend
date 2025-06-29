@@ -1,0 +1,139 @@
+/*
+  # Add Vector Search and RAG Support
+
+  1. Extensions
+    - Enable vector extension for embeddings
+    - Enable pg_trgm for text similarity
+
+  2. Schema Changes
+    - Add embedding column (vector 1536)
+    - Add keywords array for text search
+    - Add summary for AI-generated summaries
+    - Add relevance_score for ranking
+
+  3. Indexes
+    - Vector similarity index (IVFFlat)
+    - GIN index for keywords array
+    - Composite indexes for performance
+
+  4. Functions
+    - hybrid_search: Combines vector and text search
+    - get_knowledge_needing_embeddings: Batch processing helper
+
+  5. Security
+    - Maintains existing RLS policies
+*/
+
+-- Enable required extensions
+CREATE EXTENSION IF NOT EXISTS vector;
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
+
+-- Add vector and metadata columns to meeting_knowledge
+ALTER TABLE meeting_knowledge 
+ADD COLUMN IF NOT EXISTS embedding vector(1536),
+ADD COLUMN IF NOT EXISTS keywords text[],
+ADD COLUMN IF NOT EXISTS summary text,
+ADD COLUMN IF NOT EXISTS relevance_score float DEFAULT 1.0;
+
+-- Create vector similarity index
+CREATE INDEX IF NOT EXISTS meeting_knowledge_embedding_idx 
+ON meeting_knowledge 
+USING ivfflat (embedding vector_cosine_ops)
+WITH (lists = 100);
+
+-- Create GIN index for keywords array
+CREATE INDEX IF NOT EXISTS meeting_knowledge_keywords_idx 
+ON meeting_knowledge 
+USING gin (keywords);
+
+-- Create composite indexes for better query performance
+CREATE INDEX IF NOT EXISTS meeting_knowledge_meeting_type_idx 
+ON meeting_knowledge (meeting_id, content_type);
+
+CREATE INDEX IF NOT EXISTS meeting_knowledge_relevance_idx 
+ON meeting_knowledge (relevance_score DESC);
+
+-- Drop existing function if it exists (to avoid return type conflicts)
+DROP FUNCTION IF EXISTS hybrid_search(vector, text, text, double precision, integer);
+DROP FUNCTION IF EXISTS hybrid_search(vector, text, text, float, int);
+
+-- Hybrid search function combining vector similarity and text search
+CREATE OR REPLACE FUNCTION hybrid_search(
+  query_embedding vector(1536),
+  query_text text,
+  target_meeting_id text DEFAULT NULL,
+  match_threshold float DEFAULT 0.7,
+  match_count int DEFAULT 10
+)
+RETURNS TABLE (
+  id uuid,
+  meeting_id text,
+  content text,
+  content_type text,
+  source text,
+  created_at timestamptz,
+  similarity float,
+  keyword_match boolean
+)
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  RETURN QUERY
+  SELECT 
+    mk.id,
+    mk.meeting_id,
+    mk.content,
+    mk.content_type,
+    mk.source,
+    mk.created_at,
+    (mk.embedding <=> query_embedding) * -1 + 1 as similarity,
+    (query_text <% ANY(mk.keywords)) as keyword_match
+  FROM meeting_knowledge mk
+  WHERE 
+    (target_meeting_id IS NULL OR mk.meeting_id = target_meeting_id)
+    AND mk.embedding IS NOT NULL
+    AND (
+      (mk.embedding <=> query_embedding) < (1 - match_threshold)
+      OR (mk.keywords IS NOT NULL AND query_text <% ANY(mk.keywords))
+    )
+  ORDER BY 
+    similarity DESC,
+    keyword_match DESC,
+    mk.created_at DESC
+  LIMIT match_count;
+END;
+$$;
+
+-- Drop existing function if it exists
+DROP FUNCTION IF EXISTS get_knowledge_needing_embeddings(int);
+DROP FUNCTION IF EXISTS get_knowledge_needing_embeddings(integer);
+
+-- Function to get knowledge items that need embedding processing
+CREATE OR REPLACE FUNCTION get_knowledge_needing_embeddings(
+  batch_size int DEFAULT 10
+)
+RETURNS TABLE (
+  id uuid,
+  meeting_id text,
+  content text,
+  content_type text,
+  source text,
+  created_at timestamptz
+)
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  RETURN QUERY
+  SELECT 
+    mk.id,
+    mk.meeting_id,
+    mk.content,
+    mk.content_type,
+    mk.source,
+    mk.created_at
+  FROM meeting_knowledge mk
+  WHERE mk.embedding IS NULL
+  ORDER BY mk.created_at DESC
+  LIMIT batch_size;
+END;
+$$;
