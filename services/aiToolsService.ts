@@ -1,4 +1,4 @@
-import { ragService } from './ragService';
+import { ragService } from './ragService.js';
 // Local type definitions to avoid path issues
 type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
 

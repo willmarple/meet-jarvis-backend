@@ -1,4 +1,4 @@
-import { supabase } from '../lib/supabase';
+import { supabase } from '../lib/supabase.js';
 
 export interface EmbeddingResponse {
   embedding: number[];
@@ -138,11 +138,14 @@ export class EmbeddingService {
         this.generateSummary(content)
       ]);
 
+      // Convert embedding array to pgvector string format: '[1.0, 2.3, ...]'
+      const pgvectorString = embedding.length > 0 ? `[${embedding.join(',')}]` : null;
+
       // Update the knowledge item with processed data
       const { error } = await supabase
         .from('meeting_knowledge')
         .update({
-          embedding: embedding.length > 0 ? embedding : null,
+          embedding: pgvectorString,
           keywords,
           summary,
           updated_at: new Date().toISOString()

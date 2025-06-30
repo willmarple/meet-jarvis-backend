@@ -1,5 +1,5 @@
-import { supabase } from '../lib/supabase';
-import { embeddingService } from './embeddingService';
+import { supabase } from '../lib/supabase.js';
+import { embeddingService } from './embeddingService.js';
 // Local type definition to avoid path issues
 interface SearchResult {
   id: string;

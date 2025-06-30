@@ -279,12 +279,13 @@ app.post('/api/test/rag-search', async (req: Request, res: Response) => {
 app.get('/api/test/knowledge-status', async (req: Request, res: Response) => {
   try {
     // Check knowledge base status
+    const { meetingId = 'TASKFLOW-DEMO' } = req.query;
     
     // Get knowledge stats
     const { data: knowledgeStats, error: statsError } = await supabase
       .from('meeting_knowledge')
       .select('meeting_id, content_type, source, embedding')
-      .eq('meeting_id', 'TASKFLOW-DEMO');
+      .eq('meeting_id', meetingId);
 
     if (statsError) {
       throw statsError;
@@ -366,7 +367,7 @@ app.post('/api/test/ai-tools', async (req: Request, res: Response) => {
     }
 
     // Import AI Tools Service
-    const { createAIToolsService } = await import('./services/aiToolsService');
+    const { createAIToolsService } = await import('./services/aiToolsService.js');
     const aiToolsService = createAIToolsService(meetingId);
 
     // Execute the tool
@@ -389,13 +390,146 @@ app.post('/api/test/ai-tools', async (req: Request, res: Response) => {
   }
 });
 
+// Fix Embedding Types
+app.post('/api/test/fix-embeddings', async (req: Request, res: Response) => {
+  try {
+    const { meetingId = 'TASKFLOW-DEMO' } = req.body;
+    
+    // Get items with string embeddings
+    const { data: items, error } = await supabase
+      .from('meeting_knowledge')
+      .select('id, content, embedding')
+      .eq('meeting_id', meetingId)
+      .not('embedding', 'is', null)
+      .limit(5);
+
+    if (error) {
+      throw error;
+    }
+
+    let fixedCount = 0;
+    const results = [];
+
+    for (const item of items || []) {
+      // Check if embedding is a string
+      if (typeof item.embedding === 'string') {
+        try {
+          // Try to parse the string as JSON array
+          const embeddingArray = JSON.parse(item.embedding);
+          
+          if (Array.isArray(embeddingArray) && embeddingArray.length === 1536) {
+            // Update with proper array
+            const { error: updateError } = await supabase
+              .from('meeting_knowledge')
+              .update({ embedding: embeddingArray })
+              .eq('id', item.id);
+            
+            if (!updateError) {
+              fixedCount++;
+              results.push({
+                id: item.id,
+                status: 'fixed',
+                originalType: 'string',
+                newLength: embeddingArray.length
+              });
+            } else {
+              results.push({
+                id: item.id,
+                status: 'error',
+                error: updateError.message
+              });
+            }
+          } else {
+            results.push({
+              id: item.id,
+              status: 'invalid_array',
+              length: Array.isArray(embeddingArray) ? embeddingArray.length : 'not_array'
+            });
+          }
+        } catch (parseError) {
+          results.push({
+            id: item.id,
+            status: 'parse_error',
+            error: parseError instanceof Error ? parseError.message : 'Unknown parse error'
+          });
+        }
+      } else {
+        results.push({
+          id: item.id,
+          status: 'already_correct',
+          type: typeof item.embedding,
+          isArray: Array.isArray(item.embedding)
+        });
+      }
+    }
+
+    res.json({
+      success: true,
+      message: `Fixed ${fixedCount} embeddings`,
+      fixedCount,
+      totalChecked: items?.length || 0,
+      results
+    });
+  } catch (error: unknown) {
+    console.error('Fix embeddings failed:', error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
+
+// Debug Database Content
+app.get('/api/test/debug-db', async (req: Request, res: Response) => {
+  try {
+    const { meetingId = 'TASKFLOW-DEMO' } = req.query;
+    
+    // Get raw knowledge data
+    const { data: rawData, error } = await supabase
+      .from('meeting_knowledge')
+      .select('id, content, embedding, keywords, summary')
+      .eq('meeting_id', meetingId)
+      .limit(3);
+
+    if (error) {
+      throw error;
+    }
+
+    const debug = {
+      totalItems: rawData?.length || 0,
+      items: rawData?.map(item => ({
+        id: item.id,
+        content: item.content.substring(0, 100) + '...',
+        hasEmbedding: !!item.embedding,
+        embeddingLength: item.embedding ? item.embedding.length : 0,
+        embeddingType: item.embedding ? typeof item.embedding : 'null',
+        hasKeywords: !!item.keywords,
+        keywordsCount: item.keywords ? item.keywords.length : 0,
+        hasSummary: !!item.summary
+      })) || []
+    };
+
+    res.json({
+      success: true,
+      message: 'Debug information retrieved',
+      debug
+    });
+  } catch (error: unknown) {
+    console.error('Debug DB test failed:', error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
+
 // Test ElevenLabs Tool Integration
 app.post('/api/test/elevenlabs-tools', async (req: Request, res: Response) => {
   try {
     const { meetingId = 'TASKFLOW-DEMO' } = req.body;
     
     // Import AI Tools Service
-    const { createAIToolsService } = await import('./services/aiToolsService');
+    const { createAIToolsService } = await import('./services/aiToolsService.js');
     const aiToolsService = createAIToolsService(meetingId);
 
     // Test all 5 tools
@@ -724,6 +858,27 @@ io.on('connection', (socket) => {
   });
 });
 
+// Background processing for knowledge embeddings
+const startBackgroundProcessing = async () => {
+  console.log('🔄 Starting background knowledge processing...');
+  
+  const processKnowledge = async () => {
+    try {
+      const { EmbeddingService } = await import('./services/embeddingService.js');
+      const embeddingService = new EmbeddingService();
+      await embeddingService.processPendingKnowledge();
+    } catch (error) {
+      console.error('Background processing error:', error);
+    }
+  };
+  
+  // Process immediately on startup
+  setTimeout(processKnowledge, 5000); // Wait 5 seconds for server to be ready
+  
+  // Then process every 30 seconds
+  setInterval(processKnowledge, 30000);
+};
+
 const PORT = process.env.PORT || 3001;
 server.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
@@ -772,4 +927,7 @@ server.listen(PORT, () => {
   console.log(`  VITE_SUPABASE_ANON_KEY: ${process.env.VITE_SUPABASE_ANON_KEY ? 'SET (' + process.env.VITE_SUPABASE_ANON_KEY.substring(0, 20) + '...)' : 'MISSING'}`);
   console.log(`  WEBCONTAINER_MODE: ${process.env.WEBCONTAINER_MODE || 'NOT SET'}`);
   console.log(`  NODE_ENV: ${process.env.NODE_ENV || 'NOT SET'}`);
+  
+  // Start background processing for knowledge embeddings
+  startBackgroundProcessing();
 });
