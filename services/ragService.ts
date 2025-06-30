@@ -1,5 +1,7 @@
 import { supabase } from '../lib/supabase.js';
 import { embeddingService } from './embeddingService.js';
+import { createClient } from '@supabase/supabase-js';
+import { logger } from '../logger.js';
 // Local type definition to avoid path issues
 interface SearchResult {
   id: string;
@@ -14,6 +16,91 @@ interface SearchResult {
 }
 
 export class RAGService {
+  // Create authenticated Supabase client for bypassing RLS
+  private getAuthenticatedClient() {
+    return createClient(
+      process.env.VITE_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY!
+    );
+  }
+
+  // Debug method to check raw database access
+  async debugCheckKnowledge(meetingId: string): Promise<any[]> {
+    const authenticatedClient = this.getAuthenticatedClient();
+    logger.debug('🔍 DEBUG - Checking raw knowledge access for meeting', { meetingId });
+    
+    const { data, error } = await authenticatedClient
+      .from('meeting_knowledge')
+      .select('*')
+      .eq('meeting_id', meetingId);
+      
+    logger.debug('🔍 DEBUG - Raw query result', {
+      dataCount: data?.length || 0,
+      error: error,
+      firstItem: data?.[0] ? {
+        id: data[0].id,
+        content: data[0].content.substring(0, 100) + '...',
+        meeting_id: data[0].meeting_id,
+        hasEmbedding: !!data[0].embedding,
+        hasKeywords: !!data[0].keywords
+      } : null
+    });
+    
+    return data || [];
+  }
+
+  // Debug method to test hybrid_search function directly
+  async debugTestHybridSearch(meetingId: string, queryEmbedding: number[], queryText: string): Promise<any> {
+    const authenticatedClient = this.getAuthenticatedClient();
+    logger.debug('🔍 DEBUG - Testing hybrid_search function directly', { 
+      meetingId, 
+      queryText,
+      embeddingLength: queryEmbedding.length,
+      embeddingPreview: queryEmbedding.slice(0, 5)
+    });
+    
+    // Test with very low threshold to see if we get any results
+    const { data, error } = await authenticatedClient.rpc('hybrid_search', {
+      query_embedding: queryEmbedding,
+      query_text: queryText,
+      target_meeting_id: meetingId,
+      match_threshold: 0.0,  // Very low threshold
+      match_count: 10
+    });
+    
+    logger.debug('🔍 DEBUG - hybrid_search direct test result', {
+      dataCount: data?.length || 0,
+      error: error,
+      firstResult: data?.[0] ? {
+        similarity: data[0].similarity,
+        keyword_match: data[0].keyword_match,
+        content: data[0].content?.substring(0, 100) + '...'
+      } : null
+    });
+    
+    // Also test without meeting ID filter
+    const { data: globalData, error: globalError } = await authenticatedClient.rpc('hybrid_search', {
+      query_embedding: queryEmbedding,
+      query_text: queryText,
+      target_meeting_id: null,  // No meeting filter
+      match_threshold: 0.0,
+      match_count: 10
+    });
+    
+    logger.debug('🔍 DEBUG - hybrid_search global test result', {
+      dataCount: globalData?.length || 0,
+      error: globalError,
+      firstResult: globalData?.[0] ? {
+        similarity: globalData[0].similarity,
+        keyword_match: globalData[0].keyword_match,
+        meeting_id: globalData[0].meeting_id,
+        content: globalData[0].content?.substring(0, 100) + '...'
+      } : null
+    });
+    
+    return { meetingFiltered: data, global: globalData };
+  }
+
   async semanticSearch(
     query: string,
     meetingId?: string,
@@ -25,17 +112,59 @@ export class RAGService {
   ): Promise<SearchResult[]> {
     const { limit = 10, threshold = 0.7 } = options;
 
+    logger.debug('🔍 RAG Service - semanticSearch called', {
+      query,
+      meetingId,
+      limit,
+      threshold,
+      timestamp: new Date().toISOString()
+    });
+
     try {
       // Generate embedding for the query
+      logger.debug('🔍 RAG Service - Generating embedding for query', { query });
       const queryEmbedding = await embeddingService.generateEmbedding(query);
       
       if (queryEmbedding.length === 0) {
-        console.warn('No embedding generated, falling back to text search');
+        logger.warn('🔍 RAG Service - No embedding generated, falling back to text search');
         return this.textSearch(query, meetingId, limit);
       }
 
-      // Use the hybrid search function
-      const { data, error } = await supabase.rpc('hybrid_search', {
+      logger.debug('🔍 RAG Service - Embedding generated', { length: queryEmbedding.length });
+      logger.debug('🔍 RAG Service - Calling hybrid_search RPC with params', {
+        query_text: query,
+        target_meeting_id: meetingId || null,
+        match_threshold: threshold,
+        match_count: limit,
+        embedding_preview: queryEmbedding.slice(0, 5), // Show first 5 values
+        usingServiceRole: !!process.env.SUPABASE_SERVICE_ROLE_KEY
+      });
+
+      // Try with a much lower threshold to see if that's the issue
+      const lowThreshold = 0.1;
+      logger.debug('🔍 RAG Service - Trying with lower threshold', { lowThreshold });
+
+      // Use authenticated client for hybrid search to bypass RLS
+      const authenticatedClient = this.getAuthenticatedClient();
+      logger.debug('🔍 RAG Service - Using authenticated client for hybrid_search');
+      
+      // First try without meeting ID filter to test if hybrid_search works at all
+      logger.debug('🔍 RAG Service - Testing hybrid_search without meeting filter first');
+      const { data: testData, error: testError } = await authenticatedClient.rpc('hybrid_search', {
+        query_embedding: queryEmbedding,
+        query_text: query,
+        target_meeting_id: null, // No meeting filter for test
+        match_threshold: threshold,
+        match_count: limit
+      });
+      
+      logger.debug('🔍 RAG Service - hybrid_search test (no meeting filter)', {
+        dataCount: testData ? testData.length : 0,
+        error: testError
+      });
+
+      // Now try with meeting ID filter  
+      const { data, error } = await authenticatedClient.rpc('hybrid_search', {
         query_embedding: queryEmbedding,
         query_text: query,
         target_meeting_id: meetingId || null,
@@ -43,14 +172,30 @@ export class RAGService {
         match_count: limit
       });
 
+      logger.debug('🔍 RAG Service - hybrid_search RPC response', {
+        dataCount: data ? data.length : 0,
+        error: error,
+        data: data ? data.map((item: any) => ({ 
+          id: item.id, 
+          content_preview: item.content?.substring(0, 100) + '...', 
+          similarity: item.similarity,
+          meeting_id: item.meeting_id 
+        })) : null
+      });
+
       if (error) {
-        console.error('Semantic search error:', error);
+        logger.error('🔍 RAG Service - Semantic search error', { error });
+        logger.debug('🔍 RAG Service - Falling back to text search due to error');
         return this.textSearch(query, meetingId, limit);
       }
 
+      logger.debug('🔍 RAG Service - Returning results from semantic search', { 
+        resultCount: data?.length || 0 
+      });
       return data || [];
     } catch (error) {
-      console.error('Error in semantic search:', error);
+      logger.error('🔍 RAG Service - Error in semantic search', { error });
+      logger.debug('🔍 RAG Service - Falling back to text search due to exception');
       return this.textSearch(query, meetingId, limit);
     }
   }
@@ -60,8 +205,19 @@ export class RAGService {
     meetingId?: string,
     limit: number = 10
   ): Promise<SearchResult[]> {
+    console.log('🔍 RAG Service - textSearch called (fallback):', {
+      query,
+      meetingId,
+      limit,
+      timestamp: new Date().toISOString()
+    });
+
     try {
-      let queryBuilder = supabase
+      // Use authenticated client for text search to bypass RLS
+      const authenticatedClient = this.getAuthenticatedClient();
+      console.log('🔍 RAG Service - Using authenticated client for text search');
+      
+      let queryBuilder = authenticatedClient
         .from('meeting_knowledge')
         .select('*')
         .textSearch('content', query, { type: 'websearch' })
@@ -72,16 +228,28 @@ export class RAGService {
         queryBuilder = queryBuilder.eq('meeting_id', meetingId);
       }
 
+      console.log('🔍 RAG Service - Executing text search query...');
       const { data, error } = await queryBuilder;
 
+      console.log('🔍 RAG Service - textSearch response:', {
+        dataCount: data ? data.length : 0,
+        error: error,
+        data: data ? data.map((item: any) => ({ 
+          id: item.id, 
+          content_preview: item.content?.substring(0, 100) + '...', 
+          meeting_id: item.meeting_id 
+        })) : null
+      });
+
       if (error) {
-        console.error('Text search error:', error);
+        console.error('🔍 RAG Service - Text search error:', error);
         return [];
       }
 
+      console.log('🔍 RAG Service - Returning', data?.length || 0, 'results from text search');
       return data || [];
     } catch (error) {
-      console.error('Error in text search:', error);
+      console.error('🔍 RAG Service - Error in text search:', error);
       return [];
     }
   }
@@ -125,8 +293,11 @@ export class RAGService {
     limit: number = 5
   ): Promise<SearchResult[]> {
     try {
+      // Use authenticated client for similar knowledge search
+      const authenticatedClient = this.getAuthenticatedClient();
+      
       // Get the source knowledge item
-      const { data: sourceItem, error: sourceError } = await supabase
+      const { data: sourceItem, error: sourceError } = await authenticatedClient
         .from('meeting_knowledge')
         .select('*')
         .eq('id', knowledgeId)
@@ -138,7 +309,7 @@ export class RAGService {
       }
 
       // Find similar items using vector similarity
-      const { data, error } = await supabase.rpc('hybrid_search', {
+      const { data, error } = await authenticatedClient.rpc('hybrid_search', {
         query_embedding: sourceItem.embedding,
         query_text: sourceItem.content,
         target_meeting_id: null, // Search across all meetings

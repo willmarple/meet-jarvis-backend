@@ -1,4 +1,6 @@
 import { ragService } from './ragService.js';
+import { embeddingService } from './embeddingService.js';
+import { logger } from '../logger.js';
 // Local type definitions to avoid path issues
 type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
 
@@ -203,11 +205,50 @@ export class AIToolsService {
   private async recallDecisions(params: JsonValue): Promise<ToolResult> {
     const { topic } = params as { topic: string; };
     
+    logger.debug('🔧 AI Tools - recallDecisions called', {
+      topic,
+      meetingId: this.meetingId,
+      userId: this.userId,
+      timestamp: new Date().toISOString()
+    });
+    
     // Search for decision-related content
     const decisionQuery = `decision about ${topic}`;
+    // Debug: Check raw database access first
+    console.log('IMMEDIATE DEBUG - About to call debugCheckKnowledge');
+    logger.debug('🔧 AI Tools - Debug: Checking raw database access...');
+    await ragService.debugCheckKnowledge(this.meetingId);
+    console.log('IMMEDIATE DEBUG - debugCheckKnowledge completed');
+    
+    // Debug: Test hybrid_search function directly
+    console.log('IMMEDIATE DEBUG - About to test hybrid_search directly');
+    logger.debug('🔧 AI Tools - Debug: Testing hybrid_search function directly...');
+    
+    // Generate embedding for the decision query
+    const queryEmbedding = await embeddingService.generateEmbedding(decisionQuery);
+    if (queryEmbedding.length > 0) {
+      await ragService.debugTestHybridSearch(this.meetingId, queryEmbedding, decisionQuery);
+    } else {
+      logger.debug('🔧 AI Tools - Debug: Could not generate embedding for query');
+    }
+    console.log('IMMEDIATE DEBUG - hybrid_search test completed');
+    
+    logger.debug('🔧 AI Tools - Calling ragService.semanticSearch with query', { query: decisionQuery });
+    
     const results = await ragService.semanticSearch(decisionQuery, this.meetingId, {
       limit: 10,
-      threshold: 0.5
+      threshold: 0.1  // Much lower threshold to test if similarity matching is the issue
+    });
+
+    logger.debug('🔧 AI Tools - RAG search results received', {
+      resultCount: results.length,
+      results: results.map(r => ({
+        id: r.id,
+        content_preview: r.content.substring(0, 100) + '...',
+        content_type: r.content_type,
+        similarity: r.similarity,
+        meeting_id: r.meeting_id
+      }))
     });
 
     // Filter for decision-type content and high relevance
@@ -218,7 +259,19 @@ export class AIToolsService {
       r.content.toLowerCase().includes('agreed')
     );
 
-    return {
+    logger.debug('🔧 AI Tools - After filtering for decision keywords', {
+      filteredCount: decisions.length,
+      decisions: decisions.map(d => ({
+        content_preview: d.content.substring(0, 100) + '...',
+        similarity: d.similarity,
+        matchedKeyword: d.content_type === 'summary' ? 'summary_type' :
+          d.content.toLowerCase().includes('decision') ? 'decision' :
+          d.content.toLowerCase().includes('decided') ? 'decided' :
+          d.content.toLowerCase().includes('agreed') ? 'agreed' : 'unknown'
+      }))
+    });
+
+    const result = {
       success: true,
       data: {
         topic,
@@ -229,6 +282,14 @@ export class AIToolsService {
         }))
       }
     };
+
+    logger.debug('🔧 AI Tools - recallDecisions returning', {
+      success: result.success,
+      decisionCount: result.data.decisions.length,
+      topic: result.data.topic
+    });
+
+    return result;
   }
 
   private async getActionItems(params: JsonValue): Promise<ToolResult> {

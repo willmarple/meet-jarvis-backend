@@ -119,7 +119,17 @@ router.post('/meetings/:meetingId/ai-tools',
       const { userId } = req.auth!;
       const { toolName, parameters } = req.body;
       
+      console.log('🔐 Secure AI Tools - Request received:', {
+        meetingId,
+        userId,
+        toolName,
+        parameters,
+        authContext: req.auth,
+        timestamp: new Date().toISOString()
+      });
+      
       if (!toolName) {
+        console.log('🔐 Secure AI Tools - Missing toolName parameter');
         res.status(400).json({ 
           success: false, 
           error: 'toolName parameter is required' 
@@ -127,16 +137,25 @@ router.post('/meetings/:meetingId/ai-tools',
         return;
       }
       
-      console.log(`Executing AI tool "${toolName}" for meeting ${meetingId}, user: ${userId}`);
+      console.log(`🔐 Secure AI Tools - Executing tool "${toolName}" for meeting ${meetingId}, user: ${userId}`);
       
       // Import AI Tools Service
       const { createAIToolsService } = await import('../services/aiToolsService.js');
+      console.log('🔐 Secure AI Tools - Creating AI tools service with userId:', userId);
       const aiToolsService = createAIToolsService(meetingId, userId || undefined);
 
       // Execute the tool with user context
+      console.log('🔐 Secure AI Tools - Executing tool with parameters:', { toolName, parameters });
       const result = await aiToolsService.executeTool({
         name: toolName,
         parameters: parameters || {}
+      });
+
+      console.log('🔐 Secure AI Tools - Tool execution completed:', {
+        toolName,
+        success: result.success,
+        hasData: !!result.data,
+        resultPreview: result.success ? (result.data && typeof result.data === 'object' ? Object.keys(result.data) : 'simple_result') : result.error
       });
 
       res.json({ 
