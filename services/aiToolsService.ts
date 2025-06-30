@@ -25,9 +25,11 @@ interface AITool {
 
 export class AIToolsService {
   private meetingId: string;
+  private userId?: string;
 
-  constructor(meetingId: string) {
+  constructor(meetingId: string, userId?: string) {
     this.meetingId = meetingId;
+    this.userId = userId;
   }
 
   // Define available tools for the AI agent
@@ -368,4 +370,4 @@ You can use these tools to search and retrieve specific information from the mee
   }
 }
 
-export const createAIToolsService = (meetingId: string) => new AIToolsService(meetingId);
+export const createAIToolsService = (meetingId: string, userId?: string) => new AIToolsService(meetingId, userId);

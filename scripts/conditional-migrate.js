@@ -23,9 +23,9 @@ if (!command) {
 }
 
 const migrationCommands = {
-  up: 'node-pg-migrate up --migrations-dir local_migrations --migration-file-language js',
-  down: 'node-pg-migrate down --migrations-dir local_migrations --migration-file-language js',
-  create: 'node-pg-migrate create --migrations-dir local_migrations --migration-file-language js'
+  up: 'npx node-pg-migrate up --migrations-dir local_migrations --migration-file-language js',
+  down: 'npx node-pg-migrate down --migrations-dir local_migrations --migration-file-language js',
+  create: 'npx node-pg-migrate create --migrations-dir local_migrations --migration-file-language js'
 };
 
 const migrationCommand = migrationCommands[command];

@@ -28,20 +28,7 @@ declare module 'express-serve-static-core' {
   }
 }
 
-// Check if we're in webcontainer mode via environment variable or shell detection
-function isWebContainerEnvironment(): boolean {
-  // First check explicit environment variable
-  if (process.env.WEBCONTAINER_MODE === 'true') {
-    return true;
-  }
-  
-  // Fallback: detect webcontainer by shell (Bolt.new/StackBlitz use /bin/jsh)
-  if (process.env.SHELL === '/bin/jsh') {
-    return true;
-  }
-  
-  return false;
-}
+// Removed webcontainer environment detection since we're running locally
 
 // Middleware to authenticate requests using Clerk JWT
 export const authenticateUser = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
@@ -66,25 +53,7 @@ export const authenticateUser = async (req: Request, res: Response, next: NextFu
       return;
     }
 
-    // Handle webcontainer environments where JWT verification fails due to WebCrypto API limitations
-    const isWebContainer = isWebContainerEnvironment();
-    logger.debug('WebContainer environment check', { 
-      isWebContainer, 
-      webcontainerModeEnv: process.env.WEBCONTAINER_MODE,
-      shell: process.env.SHELL,
-      nodeEnv: process.env.NODE_ENV 
-    });
-    
-    if (isWebContainer && (process.env.NODE_ENV === 'development' || !process.env.NODE_ENV)) {
-      logger.warn('WebContainer environment detected - Clerk JWT verification incompatible with WebCrypto API');
-      logger.warn('Falling back to anonymous access in development mode');
-      req.auth = { 
-        userId: null, 
-        isAnonymous: true 
-      };
-      next();
-      return;
-    }
+    // Removed webcontainer fallback logic since we're running locally
 
     // Check if we have the required Clerk configuration
     if (!process.env.CLERK_SECRET_KEY) {
@@ -160,15 +129,7 @@ export const authenticateUser = async (req: Request, res: Response, next: NextFu
         error: verifyError instanceof Error ? verifyError.message : String(verifyError)
       });
       
-      // Check if this is a WebCrypto related error
-      const isWebContainer = isWebContainerEnvironment();
-      const isWebCryptoError = verifyError instanceof Error && 
-                              (verifyError.message.includes('Invalid keyData') || 
-                               verifyError.message.includes('DataError'));
-      
-      if (isWebContainer && isWebCryptoError) {
-        logger.warn('WebCrypto API error detected in webcontainer - falling back to anonymous access');
-      }
+      // Log the specific verification error for debugging
       
       // Fall back to anonymous access for development
       if (process.env.NODE_ENV === 'development') {
@@ -282,14 +243,7 @@ export const optionalAuth = async (req: Request, res: Response, next: NextFuncti
       return;
     }
 
-    // Handle webcontainer environments where JWT verification fails
-    const isWebContainer = isWebContainerEnvironment();
-    if (isWebContainer && (process.env.NODE_ENV === 'development' || !process.env.NODE_ENV)) {
-      logger.warn('WebContainer environment detected in optionalAuth - falling back to anonymous');
-      req.auth = { userId: null, isAnonymous: true };
-      next();
-      return;
-    }
+    // Removed webcontainer environment handling since we're running locally
     
     try {
       // Extract issuer with base64 support (same logic as authenticateUser)

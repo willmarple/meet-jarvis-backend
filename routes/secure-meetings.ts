@@ -105,12 +105,27 @@ router.post('/meetings/:meetingId/participants', authenticateUser, async (req: R
     const { userId } = req.auth!;
     const { user_name, user_id } = req.body;
     
+    console.log('Adding participant to meeting:', {
+      meetingId,
+      authUserId: userId,
+      requestUserId: user_id,
+      userName: user_name
+    });
+    
     if (!user_name) {
       res.status(400).json({ error: 'User name is required' });
       return;
     }
     
-    const participantUserId = user_id || userId;
+    // Always use the authenticated user ID from JWT token for security
+    const participantUserId = userId;
+    
+    console.log('Final participant data:', {
+      meeting_id: meetingId,
+      user_name,
+      user_id: participantUserId,
+      is_connected: true
+    });
     
     // Upsert participant
     const { data, error } = await supabase
@@ -148,9 +163,44 @@ router.put('/meetings/:meetingId/participants/:userId/status', authenticateUser,
     const { userId: authUserId } = req.auth!;
     const { is_connected } = req.body;
     
+    console.log('Participant status update attempt:', {
+      meetingId,
+      participantUserId,
+      authUserId,
+      is_connected,
+      userIdMatch: authUserId === participantUserId
+    });
+    
     // Users can only update their own status
     if (authUserId !== participantUserId) {
+      console.log('User ID mismatch - rejecting request');
       res.status(403).json({ error: 'Can only update your own status' });
+      return;
+    }
+    
+    // First, let's check if the participant exists
+    const { data: existingParticipant, error: checkError } = await supabase
+      .from('meeting_participants')
+      .select('*')
+      .eq('meeting_id', meetingId)
+      .eq('user_id', participantUserId)
+      .maybeSingle();
+    
+    console.log('Existing participant check:', {
+      found: !!existingParticipant,
+      participant: existingParticipant,
+      error: checkError
+    });
+    
+    if (checkError) {
+      console.error('Error checking for existing participant:', checkError);
+      res.status(500).json({ error: 'Failed to check participant status' });
+      return;
+    }
+    
+    if (!existingParticipant) {
+      console.log('Participant not found - cannot update status');
+      res.status(404).json({ error: 'Participant not found' });
       return;
     }
     
@@ -158,6 +208,8 @@ router.put('/meetings/:meetingId/participants/:userId/status', authenticateUser,
     if (!is_connected) {
       updateData.left_at = new Date().toISOString();
     }
+    
+    console.log('Updating participant with data:', updateData);
     
     const { data, error } = await supabase
       .from('meeting_participants')

@@ -32,42 +32,36 @@ config({ path: '../.env' });
 
 const app = express();
 const server = createServer(app);
-// CORS configuration for both local development and Bolt.new deployment
+// CORS configuration for local development, production, and cloud IDE environments
 const allowedOrigins = [
   // Local development
-  "http://localhost:5173",
-  "http://localhost:3000",
-  "http://127.0.0.1:5173",
-  "http://127.0.0.1:3000",
+  /^https?:\/\/localhost:(5173|3000|3001)$/,
+  /^https?:\/\/127\.0\.0\.1:(5173|3000|3001)$/,
+  
+  // Production domains  
+  /^https?:\/\/(www\.)?dope\.vision$/,
+  
+  // Netlify domains
+  /^https?:\/\/.*\.netlify\.app$/,
+  
   // Bolt.new and StackBlitz domains
-  "https://stackblitz.com",
-  "https://*.stackblitz.io",
-  "https://bolt.new",
-  "https://*.bolt.new",
+  /^https?:\/\/stackblitz\.com$/,
+  /^https?:\/\/.*\.stackblitz\.io$/,
+  /^https?:\/\/bolt\.new$/,
+  /^https?:\/\/.*\.bolt\.new$/,
+  
   // WebContainer API domains
-  "https://*.webcontainer-api.io",
-  "https://webcontainer-api.io"
+  /^https?:\/\/.*\.webcontainer-api\.io$/,
+  /^https?:\/\/webcontainer-api\.io$/
 ];
 
 const corsOptions = {
   origin: (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
-    // Allow requests with no origin (like mobile apps or curl requests)
+    // Allow requests with no origin (like mobile apps, curl requests, or same-origin)
     if (!origin) return callback(null, true);
     
-    // Check for exact matches
-    if (allowedOrigins.includes(origin)) {
-      return callback(null, true);
-    }
-    
-    // Check for wildcard matches (*.stackblitz.io, *.bolt.new, etc.)
-    const isAllowed = allowedOrigins.some(allowedOrigin => {
-      if (allowedOrigin.includes('*')) {
-        const pattern = allowedOrigin.replace('*', '.*');
-        const regex = new RegExp(`^${pattern}$`);
-        return regex.test(origin);
-      }
-      return false;
-    });
+    // Check if origin matches any of our allowed patterns
+    const isAllowed = allowedOrigins.some(pattern => pattern.test(origin));
     
     if (isAllowed) {
       return callback(null, true);
@@ -79,7 +73,7 @@ const corsOptions = {
   },
   credentials: true, // Allow cookies and auth headers
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"]
+  allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With", "X-API-Key"]
 };
 
 const io = new Server(server, {
@@ -88,6 +82,9 @@ const io = new Server(server, {
 
 app.use(cors(corsOptions));
 app.use(express.json());
+
+// Handle preflight requests explicitly
+app.options('*', cors(corsOptions));
 
 // Add request logging middleware
 app.use(logger.request);
@@ -354,7 +351,7 @@ app.get('/api/test/auth', async (req: Request, res: Response) => {
   }
 });
 
-// Test AI Tools Service
+// Test AI Tools Service (WARNING: This bypasses authentication for testing only)
 app.post('/api/test/ai-tools', async (req: Request, res: Response) => {
   try {
     const { toolName, parameters, meetingId = 'TASKFLOW-DEMO' } = req.body;
@@ -366,8 +363,12 @@ app.post('/api/test/ai-tools', async (req: Request, res: Response) => {
       });
     }
 
+    console.warn('⚠️ Using test AI tools endpoint - bypassing authentication!');
+    console.warn('⚠️ This should only be used for testing and development!');
+
     // Import AI Tools Service
     const { createAIToolsService } = await import('./services/aiToolsService.js');
+    // For testing, we create a service without userId (will only access demo data)
     const aiToolsService = createAIToolsService(meetingId);
 
     // Execute the tool
@@ -378,7 +379,7 @@ app.post('/api/test/ai-tools', async (req: Request, res: Response) => {
 
     return res.json({ 
       success: true, 
-      message: `AI tool "${toolName}" executed successfully`,
+      message: `AI tool "${toolName}" executed successfully (TEST MODE)`,
       result
     });
   } catch (error: unknown) {

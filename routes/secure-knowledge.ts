@@ -79,6 +79,7 @@ router.post('/meetings/:meetingId/knowledge',
           content,
           content_type,
           source,
+          creator_id: userId, // Add creator_id for security
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString()
         }])
@@ -103,6 +104,51 @@ router.post('/meetings/:meetingId/knowledge',
       res.status(500).json({ 
         success: false, 
         error: 'Internal server error' 
+      });
+    }
+  }
+);
+
+// Execute AI tools with proper authentication
+router.post('/meetings/:meetingId/ai-tools', 
+  authenticateUser, 
+  validateMeetingAccess, 
+  async (req: Request, res: Response): Promise<void> => {
+    try {
+      const { meetingId } = req.params;
+      const { userId } = req.auth!;
+      const { toolName, parameters } = req.body;
+      
+      if (!toolName) {
+        res.status(400).json({ 
+          success: false, 
+          error: 'toolName parameter is required' 
+        });
+        return;
+      }
+      
+      console.log(`Executing AI tool "${toolName}" for meeting ${meetingId}, user: ${userId}`);
+      
+      // Import AI Tools Service
+      const { createAIToolsService } = await import('../services/aiToolsService.js');
+      const aiToolsService = createAIToolsService(meetingId, userId || undefined);
+
+      // Execute the tool with user context
+      const result = await aiToolsService.executeTool({
+        name: toolName,
+        parameters: parameters || {}
+      });
+
+      res.json({ 
+        success: true, 
+        message: `AI tool "${toolName}" executed successfully`,
+        result
+      });
+    } catch (error: unknown) {
+      console.error('Secure AI tools execution failed:', error);
+      res.status(500).json({ 
+        success: false, 
+        error: error instanceof Error ? error.message : 'Internal server error' 
       });
     }
   }

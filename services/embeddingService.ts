@@ -1,4 +1,5 @@
 import { supabase } from '../lib/supabase.js';
+import { createClient } from '@supabase/supabase-js';
 
 export interface EmbeddingResponse {
   embedding: number[];
@@ -9,9 +10,26 @@ export interface EmbeddingResponse {
 export class EmbeddingService {
   private openaiApiKey: string | null;
   private isProcessing = false;
+  private serviceRoleClient: any;
 
   constructor() {
     this.openaiApiKey = process.env.OPENAI_API_KEY || process.env.VITE_OPENAI_API_KEY || null;
+    
+    // Create service role client for background processing (bypasses RLS)
+    const supabaseUrl = process.env.VITE_SUPABASE_URL;
+    const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    
+    if (supabaseUrl && serviceRoleKey) {
+      this.serviceRoleClient = createClient(supabaseUrl, serviceRoleKey, {
+        auth: {
+          autoRefreshToken: false,
+          persistSession: false
+        }
+      });
+    } else {
+      console.warn('Service role credentials not configured - background processing may fail');
+      this.serviceRoleClient = supabase; // Fallback to anon client
+    }
   }
 
   async generateEmbedding(text: string): Promise<number[]> {
@@ -141,8 +159,8 @@ export class EmbeddingService {
       // Convert embedding array to pgvector string format: '[1.0, 2.3, ...]'
       const pgvectorString = embedding.length > 0 ? `[${embedding.join(',')}]` : null;
 
-      // Update the knowledge item with processed data
-      const { error } = await supabase
+      // Update the knowledge item with processed data using service role client
+      const { error } = await this.serviceRoleClient
         .from('meeting_knowledge')
         .update({
           embedding: pgvectorString,
@@ -173,8 +191,8 @@ export class EmbeddingService {
     this.isProcessing = true;
     
     try {
-      // Get knowledge items that need processing
-      const { data: pendingItems, error } = await supabase
+      // Get knowledge items that need processing using service role client
+      const { data: pendingItems, error } = await this.serviceRoleClient
         .rpc('get_knowledge_needing_embeddings', { batch_size: 5 });
 
       if (error) {
