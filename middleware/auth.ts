@@ -3,8 +3,8 @@ import { logger } from '../logger.js';
 import { config } from 'dotenv';
 import { Request, Response, NextFunction } from 'express';
 
-// Load environment variables from parent directory
-config({ path: '../.env' });
+// Load environment variables from current directory
+config({ path: '.env' });
 
 // Initialize Supabase for auth middleware
 import { createClient } from '@supabase/supabase-js';
