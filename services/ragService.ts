@@ -256,7 +256,7 @@ export class RAGService {
 
   async buildAIContext(
     query: string,
-    meetingId: string,
+    meetingId?: string,
     maxTokens: number = 2000
   ): Promise<string> {
     try {

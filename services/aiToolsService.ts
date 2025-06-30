@@ -76,26 +76,6 @@ export class AIToolsService {
         }
       },
       {
-        name: 'get_action_items',
-        description: 'Retrieve action items and tasks from meeting discussions',
-        parameters: {
-          type: 'object',
-          properties: {
-            assignee: {
-              type: 'string',
-              description: 'Filter by person assigned (optional)'
-            },
-            status: {
-              type: 'string',
-              enum: ['pending', 'completed', 'all'],
-              description: 'Filter by completion status (default: all)',
-              default: 'all'
-            }
-          },
-          required: []
-        }
-      },
-      {
         name: 'summarize_topic',
         description: 'Generate a summary of discussions on a specific topic',
         parameters: {
@@ -113,26 +93,6 @@ export class AIToolsService {
           },
           required: ['topic']
         }
-      },
-      {
-        name: 'find_similar_discussions',
-        description: 'Find similar discussions or topics from meeting history',
-        parameters: {
-          type: 'object',
-          properties: {
-            reference_text: {
-              type: 'string',
-              description: 'Text or topic to find similar discussions for'
-            },
-            scope: {
-              type: 'string',
-              enum: ['current_meeting', 'all_meetings'],
-              description: 'Search scope (default: current_meeting)',
-              default: 'current_meeting'
-            }
-          },
-          required: ['reference_text']
-        }
       }
     ];
   }
@@ -149,14 +109,8 @@ export class AIToolsService {
         case 'recall_decisions':
           return await this.recallDecisions(toolCall.parameters);
         
-        case 'get_action_items':
-          return await this.getActionItems(toolCall.parameters);
-        
         case 'summarize_topic':
           return await this.summarizeTopic(toolCall.parameters);
-        
-        case 'find_similar_discussions':
-          return await this.findSimilarDiscussions(toolCall.parameters);
         
         default:
           return {
@@ -176,7 +130,7 @@ export class AIToolsService {
   private async searchMeetingKnowledge(params: JsonValue): Promise<ToolResult> {
     const { query, content_type, limit = 5 } = params as { query: string; content_type?: string; limit?: number; };
     
-    const results = await ragService.semanticSearch(query, this.meetingId, {
+    const results = await ragService.semanticSearch(query, undefined, {
       limit,
       threshold: 0.6
     });
@@ -235,7 +189,7 @@ export class AIToolsService {
     
     logger.debug('🔧 AI Tools - Calling ragService.semanticSearch with query', { query: decisionQuery });
     
-    const results = await ragService.semanticSearch(decisionQuery, this.meetingId, {
+    const results = await ragService.semanticSearch(decisionQuery, undefined, {
       limit: 10,
       threshold: 0.1  // Much lower threshold to test if similarity matching is the issue
     });
@@ -300,7 +254,7 @@ export class AIToolsService {
       ? `action item task ${assignee}` 
       : 'action item task todo assignment';
     
-    const results = await ragService.semanticSearch(actionQuery, this.meetingId, {
+    const results = await ragService.semanticSearch(actionQuery, undefined, {
       limit: 15,
       threshold: 0.4
     });
@@ -334,7 +288,7 @@ export class AIToolsService {
     const { topic } = params as { topic: string };
     
     // Get comprehensive information about the topic
-    const results = await ragService.semanticSearch(topic, this.meetingId, {
+    const results = await ragService.semanticSearch(topic, undefined, {
       limit: 20,
       threshold: 0.3
     });
@@ -411,7 +365,7 @@ export class AIToolsService {
   async buildConversationContext(userMessage: string): Promise<string> {
     try {
       // Get relevant context using RAG
-      const context = await ragService.buildAIContext(userMessage, this.meetingId, 1500);
+      const context = await ragService.buildAIContext(userMessage, undefined, 1500);
       
       // Add tool information
       const toolsInfo = this.getAvailableTools()

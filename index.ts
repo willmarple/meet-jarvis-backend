@@ -533,7 +533,7 @@ app.post('/api/test/elevenlabs-tools', async (req: Request, res: Response) => {
     const { createAIToolsService } = await import('./services/aiToolsService.js');
     const aiToolsService = createAIToolsService(meetingId);
 
-    // Test all 5 tools
+    // Test all 3 tools
     const testScenarios: ToolCall[] = [
       {
         name: 'search_meeting_knowledge',
@@ -544,16 +544,8 @@ app.post('/api/test/elevenlabs-tools', async (req: Request, res: Response) => {
         parameters: { topic: 'budget' }
       },
       {
-        name: 'get_action_items',
-        parameters: { status: 'all' }
-      },
-      {
         name: 'summarize_topic',
         parameters: { topic: 'project timeline' }
-      },
-      {
-        name: 'find_similar_discussions',
-        parameters: { reference_text: 'budget planning meeting', scope: 'current_meeting' }
       }
     ];
 

@@ -1,5 +1,5 @@
 {
-  "migrationsDir": "supabase/migrations",
+  "migrationsDir": "local_migrations",
   "migrationFileLanguage": "js",
   "createMigrationsSchema": false,
   "checkOrder": true,

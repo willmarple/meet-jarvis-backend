@@ -96,27 +96,6 @@ export class ElevenLabsToolRegistrationSDK {
         }
       },
       {
-        name: 'get_action_items',
-        description: 'Retrieve action items and tasks from meeting discussions',
-        expectsResponse: true,
-        parameters: {
-          type: 'object',
-          properties: {
-            assignee: {
-              type: 'string',
-              description: 'Filter by person assigned (optional)'
-            },
-            status: {
-              type: 'string',
-              enum: ['pending', 'completed', 'all'],
-              description: 'Filter by completion status (default: all)',
-              default: 'all'
-            }
-          },
-          required: []
-        }
-      },
-      {
         name: 'summarize_topic',
         description: 'Generate a summary of discussions on a specific topic',
         expectsResponse: true,
@@ -134,27 +113,6 @@ export class ElevenLabsToolRegistrationSDK {
             }
           },
           required: ['topic']
-        }
-      },
-      {
-        name: 'find_similar_discussions',
-        description: 'Find similar discussions or topics from meeting history',
-        expectsResponse: true,
-        parameters: {
-          type: 'object',
-          properties: {
-            reference_text: {
-              type: 'string',
-              description: 'Text or topic to find similar discussions for'
-            },
-            scope: {
-              type: 'string',
-              enum: ['current_meeting', 'all_meetings'],
-              description: 'Search scope (default: current_meeting)',
-              default: 'current_meeting'
-            }
-          },
-          required: ['reference_text']
         }
       }
     ];
